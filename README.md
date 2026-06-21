@@ -1,22 +1,24 @@
 # AI Resume Reviewer
 
-A powerful AI-driven application that analyzes resumes for tone, formatting, and clarity using OpenAI's GPT models. The app provides detailed feedback and suggestions to help improve resume quality.
-
-![alt text](image.png)
+An AI-powered web application that analyzes resumes for tone, formatting, and clarity using OpenAI's GPT-4 model. Provides instant scored feedback with strengths, weaknesses, and actionable suggestions — all persisted in MongoDB.
 
 ## Tech Stack
 
-- **Backend**: Node.js, Express.js
-- **Database**: MongoDB with Mongoose
-- **AI Service**: OpenAI API (GPT-4)
-- **Frontend**: HTML5, CSS3, JavaScript, Bootstrap 5
-- **File Processing**: PDF parsing, text extraction
-- **Security**: Helmet, CORS, Rate limiting
+| Layer | Technology |
+|-------|------------|
+| Runtime | Node.js ≥ 18 |
+| Framework | Express.js 4 |
+| Database | MongoDB 7 + Mongoose |
+| AI | OpenAI GPT-4 (Chat Completions) |
+| Frontend | Bootstrap 5.3, Vanilla JS |
+| File Processing | pdf-parse, multer (memory storage) |
+| Logging | pino + pino-http (structured JSON) |
+| Security | Helmet, express-rate-limit, CORS |
 
 ## Prerequisites
 
-- Node.js (v14 or higher)
-- MongoDB (local or cloud instance)
+- Node.js v18 or higher
+- MongoDB running locally or a MongoDB Atlas URI
 - OpenAI API key
 
 ## Installation
@@ -34,37 +36,31 @@ A powerful AI-driven application that analyzes resumes for tone, formatting, and
 
 3. **Set up environment variables**
    ```bash
+   # Windows
+   copy .env.example .env
+   # macOS / Linux
    cp .env.example .env
    ```
-   
-   Edit `.env` file with your configuration:
+   Open `.env` and set at minimum:
    ```env
-   NODE_ENV=development
-   PORT=3000
    MONGODB_URI=mongodb://localhost:27017/ai-resume-reviewer
-   OPENAI_API_KEY=your_openai_api_key_here
-   OPENAI_MODEL=gpt-4
-   MAX_TOKENS=2000
-   MAX_FILE_SIZE=5242880
-   ALLOWED_FILE_TYPES=application/pdf,text/plain
-   RATE_LIMIT_WINDOW_MS=900000
-   RATE_LIMIT_MAX_REQUESTS=10
+   OPENAI_API_KEY=sk-...
    ```
+   See `.env.example` for all available variables.
 
-4. **Start MongoDB**
-   Make sure MongoDB is running on your system or use a cloud service like MongoDB Atlas.
+4. **Ensure MongoDB is running**
+   Local: `mongod` — or use a MongoDB Atlas connection string.
 
 5. **Start the application**
    ```bash
-   # Development mode with auto-restart
+   # Development (nodemon + pretty logs)
    npm run dev
-   
-   # Production mode
+
+   # Production
    npm start
    ```
 
-6. **Access the application**
-   Open your browser and navigate to `http://localhost:3000`
+6. **Open** `http://localhost:3000`
 
 ## API Endpoints
 
@@ -98,20 +94,21 @@ ai-resume-reviewer/
 ├── routes/
 │   └── resume.js             # API routes
 ├── services/
-│   ├── openaiService.js      # OpenAI integration
-│   └── textExtractionService.js # File processing
+│   ├── openaiService.js         # OpenAI GPT-4 integration (retry, sanitization)
+│   └── textExtractionService.js # PDF / TXT text extraction
 ├── middleware/
-│   ├── upload.js             # File upload handling
-│   └── errorHandler.js       # Error management
+│   ├── upload.js                # Multer memory-storage upload
+│   └── errorHandler.js          # Centralized error handler
 ├── public/
-│   ├── index.html           # Frontend HTML
-│   ├── css/
-│   │   └── style.css        # Custom styles
-│   └── js/
-│       └── app.js           # Frontend JavaScript
-├── server.js                # Main application file
-├── package.json            # Dependencies and scripts
-└── .env                    # Environment variables
+│   ├── index.html               # Single-page frontend
+│   ├── css/style.css            # Custom styles
+│   └── js/app.js               # ResumeAnalyzer class
+├── tests/
+│   └── api.test.js             # Jest + Supertest suite
+├── server.js                   # Express entry point
+├── package.json
+├── .env                        # Secrets (gitignored)
+└── .env.example                # Variable reference
 ```
 
 ## Configuration
@@ -122,14 +119,18 @@ ai-resume-reviewer/
 |----------|-------------|---------|
 | `NODE_ENV` | Environment mode | `development` |
 | `PORT` | Server port | `3000` |
-| `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017/ai-resume-reviewer` |
-| `OPENAI_API_KEY` | OpenAI API key | Required |
-| `OPENAI_MODEL` | OpenAI model to use | `gpt-4` |
-| `MAX_TOKENS` | Maximum tokens for AI response | `2000` |
-| `MAX_FILE_SIZE` | Maximum upload file size (bytes) | `5242880` (5MB) |
-| `ALLOWED_FILE_TYPES` | Comma-separated allowed MIME types | `application/pdf,text/plain` |
-| `RATE_LIMIT_WINDOW_MS` | Rate limiting window | `900000` (15 minutes) |
-| `RATE_LIMIT_MAX_REQUESTS` | Max requests per window | `10` |
+| `LOG_LEVEL` | Pino log level | `info` |
+| `MONGODB_URI` | MongoDB connection string | **Required** |
+| `MONGODB_URI_TEST` | Test database URI (Jest) | `...ai-resume-reviewer-test` |
+| `OPENAI_API_KEY` | OpenAI API key | **Required** |
+| `OPENAI_MODEL` | OpenAI model | `gpt-4` |
+| `MAX_TOKENS` | Max tokens for AI response | `2000` |
+| `MAX_FILE_SIZE` | Max upload size in bytes | `5242880` (5 MB) |
+| `ALLOWED_FILE_TYPES` | Allowed MIME types | `application/pdf,text/plain` |
+| `RATE_LIMIT_WINDOW_MS` | Rate-limit window | `900000` (15 min) |
+| `RATE_LIMIT_MAX_REQUESTS` | Requests per window per IP | `10` |
+
+> **Note:** The server will refuse to start if `MONGODB_URI` or `OPENAI_API_KEY` are missing.
 
 ### File Upload Limits
 
@@ -139,20 +140,22 @@ ai-resume-reviewer/
 
 ## Security Features
 
-- **Rate Limiting**: Prevents API abuse
-- **File Validation**: Checks file type and size
-- **Helmet**: Security headers
-- **CORS**: Cross-origin request handling
-- **Input Validation**: Sanitizes user inputs
+- **Startup Guard**: Process exits immediately if required env vars are missing
+- **Rate Limiting**: 10 requests per 15 min per IP via `express-rate-limit`
+- **File Validation**: MIME allowlist + 5 MB cap enforced by Multer before any app logic
+- **Memory Storage**: Uploaded files are never written to disk
+- **Helmet**: Secure HTTP headers (CSP, HSTS, X-Frame-Options, etc.)
+- **Prompt Injection Protection**: Resume text is sanitized and wrapped in XML delimiters before reaching the AI
+- **CORS**: Configurable cross-origin policy
+- **Structured Error Responses**: All errors return `{ success: false, error: "..." }` JSON
 
-## Error Handling
+## Reliability Features
 
-The application includes comprehensive error handling for:
-- File upload errors
-- AI service failures
-- Database connection issues
-- Validation errors
-- Rate limiting violations
+- **Graceful Shutdown**: `SIGTERM`/`SIGINT` drain in-flight requests and close the DB connection cleanly before exit
+- **OpenAI Retry**: SDK configured with `maxRetries: 3` — transient API errors are retried automatically with exponential backoff
+- **Request Correlation IDs**: Every request gets a `X-Request-ID` header (UUID) for end-to-end log tracing
+- **DB Health in `/api/health`**: Returns `database: "connected"` and HTTP 503 when the DB is unreachable
+- **Structured Logging**: `pino` outputs JSON in production; pretty-printed in development
 
 ## Testing
 
@@ -177,10 +180,10 @@ npm run test:watch
 ### Docker Deployment
 
 ```dockerfile
-FROM node:16-alpine
+FROM node:18-alpine
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 COPY . .
 EXPOSE 3000
 CMD ["npm", "start"]
